@@ -1,4 +1,27 @@
 /* theory of operation
+   c1,c2 connection type is controlled by optocouplers. they
+   can be connected in parallel or in serie. When in serie,
+   they dump their charge into the batterie.
+
+   condition a
+   when c1,c2 connected in parallel and v(c1,c2) does not
+   change for parallel_ms, (ie. delta v(c1,c2) <= 1v), then
+   connect c1 and c2 in serie. parallel_ms ranges from 10ms
+   to 1000ms, with a 10ms resolution.
+
+   condition b
+   when c1,c2 connected in serie, the connection must be
+   closed after serie_ms. serie_ms can range from 10ms to
+   500ms.
+
+   condition c
+   a LCD displays the opto pulses per minutes (ppm). it also
+   shows the output voltage between x- and x+.
+
+   condition d
+   timing setup must be user controlled. one switch selects
+   between parallel_ms or serie_ms setup. setup should be
+   set in persistent memory.
  */
 
 
