@@ -302,6 +302,7 @@ static unsigned int ulong_to_string(unsigned long n, char* s)
   return len;
 }
 
+__attribute__((unused))
 static unsigned int double_to_string(double x, const uint8_t** s)
 {
   static char buf[32];
@@ -399,31 +400,96 @@ static void eeprom_read(uint8_t pos, uint8_t* buf, uint8_t n)
 
 /* adc */
 
-#define ADC_POS_VCAP 0x00
-#define ADC_DDR_VCAP DDRC
-
-#define ADC_POS_VOUT 0x01
-#define ADC_DDR_VOUT DDRC
+#define ADC_POS_VCAP 0
+#define ADC_MASK_VCAP (1 << ADC_POS_VCAP)
+#define ADC_POS_VOUT 1
+#define ADC_MASK_VOUT (1 << ADC_POS_VOUT)
+#define ADC_COMMON_DDR DDRC
+#define ADC_COMMON_MASK (ADC_MASK_VCAP | ADC_MASK_VOUT)
 
 #define ADC_CONV_VOLT(__x) (((__x) * 1024) / 5)
 
 static void adc_setup(void)
 {
+  /* chapter 23 */
+
+  ADC_COMMON_DDR &= ~ADC_COMMON_MASK;
+
+#if 1 /* fadc to 125khz */
+
+  /* 10 bits resolution requires a clock between 50khz and 200khz. */
+  /* a prescaler is used to derive fadc from fcpu. the prescaler */
+  /* starts counting when ADEN is set, and is always reset when */
+  /* ADEN goes low. */
+
+  /* 16mhz / 200khz = 80. prescaler set to 128, thus fadc = 125khz */
+  /* a normal conversion takes 13 FADC cycles */
+  /* thus, actual sampling rate of 125000 / 13 = 9615 samples per second */
+
+  ADCSRA = (7 << ADPS0);
+
+#else /* force fadc to 1mhz */
+
+  ADCSRA = (4 << ADPS0);
+
+#endif /* fadc */
+
+  ADCSRB = 0;
+
+  /* aref, internal vref off, channel 0 */
+  ADMUX = 1 << REFS0;
+
+  /* disable digital input 0 to reduce power consumption, cf 23.9.5 */
+  DIDR0 = ADC_COMMON_MASK;
 }
 
-static void adc_read(uint8_t chan, uint16_t* val)
+static void adc_wait_25(void)
 {
-  *val = 0;
+  /* wait for 25 adc cycles */
+  /* FADC = FCPU / 128, thus waits for 128 * 25 = 3200 cpu cycles */
+  uint8_t x = 0xff;
+  for (; x; --x) __asm__ __volatile__ ("nop\n\t");
+}
+
+static void adc_start_free_running(void)
+{
+  /* enable adc and free running mode */
+  ADCSRB = 0;
+  ADCSRA |= (1 << ADEN) | (1 << ADSC) | (1 << ADATE);
+
+  /* the first conversion starts 25 FADC cycles after ADEN set */
+  adc_wait_25();
+}
+
+__attribute__((unused))
+static void adc_stop(void)
+{
+  ADCSRA &= ~(1 << ADEN);
+}
+
+static void adc_enable_chan(uint8_t chan)
+{
+  ADMUX &= ~0xf;
+  ADMUX |= chan;
+}
+
+static void adc_read(uint16_t* x)
+{
+  /* read adcl first */
+  const uint8_t l = ADCL;
+  *x = ((((uint16_t)ADCH) << 8) | (uint16_t)l) & 0x3ff;
 }
 
 static void adc_read_vcap(uint16_t* val)
 {
-  adc_read(ADC_POS_VCAP, val);
+  adc_enable_chan(ADC_POS_VCAP);
+  adc_read(val);
 }
 
 static void adc_read_vout(uint16_t* val)
 {
-  adc_read(ADC_POS_VOUT, val);
+  adc_enable_chan(ADC_POS_VOUT);
+  adc_read(val);
 }
 
 
@@ -477,6 +543,7 @@ static void opto_disable_series(void)
 
 #define BUT_COMMON_DDR DDRC
 #define BUT_COMMON_PIN PINC
+#define BUT_COMMON_PORT PORTC
 
 #define BUT_PLUS_POS 2
 #define BUT_MINUS_POS 3
@@ -493,6 +560,8 @@ static void opto_disable_series(void)
 
 static void but_setup(void)
 {
+  /* enable pullups and set as input */
+  BUT_COMMON_PORT |= BUT_COMMON_MASK;
   BUT_COMMON_DDR &= ~BUT_COMMON_MASK;
 }
 
@@ -632,10 +701,12 @@ int main(void)
   uart_setup();
 #endif
 
+  adc_setup();
+  adc_start_free_running();
+
   conf_load();
   opto_setup();
   but_setup();
-  adc_setup();
   timer_disable();
 
   sei();
