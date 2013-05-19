@@ -35,6 +35,7 @@
 #include <stdint.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 
 
 #define CONFIG_LCD 1
@@ -338,26 +339,62 @@ static unsigned int double_to_string(double x, const uint8_t** s)
 }
 
 
-/* eeprom */
+#if 0 /* USE_AVR_EEPROM */
+
 /* total size: 1Kb */
 /* page size: 4 bytes */
 /* page count: 256 */
-
-#define EEPROM_PAGE_SIZE 4 /* in bytes */
-
-static void eeprom_setup(void)
-{
-}
 
 static void eeprom_write(uint8_t pos, uint8_t* buf, uint8_t n)
 {
   /* pos the page position */
   /* n the page count */
+
+  uint8_t i;
+
+  for (i = 0; i < n; ++i)
+  {
+    /* datasheet, section 27.7.5 */
+
+    /* load the command 0x11 */
+
+    /* load the addr high byte */
+    /* load the addr low byte */
+
+    /* load data[0,1,2,3] */
+    /* latch data[0,1,2,3] */
+
+    /* program the page */
+    /* set bs1 to 0 */
+    /* negative pulse wr */
+    /* wait until rdy */
+  }
+
 }
 
 static void eeprom_read(uint8_t pos, uint8_t* buf, uint8_t n)
 {
+  uint8_t i;
+
+  for (i = 0; i < n; ++i)
+  {
+    /* datasheet, section 27.7.7 */
+
+    /* load the command 0x3 */
+
+    /* load the addr high byte */
+    /* load the addr low byte */
+
+    /* set oe to 0 */
+    /* set bs1 to 0 */
+
+    /* read data */
+
+    /* set oe to 1 */
+  }
 }
+
+#endif /* USE_AVR_EEPROM */
 
 
 /* adc */
@@ -418,22 +455,22 @@ static uint8_t but_read(void)
 #define CAP_STATE_SERIES 1
 static volatile uint8_t cap_state = CAP_STATE_PARALLEL;
 
-/* user configured time */
-
-#define CONF_EEPROM_MAGIC 0xdeadbeef
-#define CONF_EEPROM_POS 42 /* max: 256 */
+/* user configured ticks */
 
 static uint16_t conf_parallel_ticks;
 static uint16_t conf_series_ticks;
 static uint16_t conf_lcd_ticks;
 
+#define CONF_EEPROM_MAGIC 0xdeadbeef
+#define CONF_EEPROM_ADDR ((void*)42) /* max: 256 */
+
 static void conf_load(void)
 {
   /* load configuration value from eeprom */
 
-  uint8_t buf[EEPROM_PAGE_SIZE * 2];
+  uint8_t buf[8];
 
-  eeprom_read(CONF_EEPROM_POS, buf, 2);
+  eeprom_read_block(buf, CONF_EEPROM_ADDR, sizeof(buf));
 
   if (*(uint32_t*)buf != CONF_EEPROM_MAGIC)
   {
@@ -465,13 +502,13 @@ static void conf_load(void)
 
 static void conf_store(void)
 {
-  uint8_t buf[EEPROM_PAGE_SIZE * 2];
+  uint8_t buf[8];
 
   *(uint32_t*)buf = CONF_EEPROM_MAGIC;
   *(uint16_t*)(buf + 4) = conf_parallel_ticks;
   *(uint16_t*)(buf + 6) = conf_series_ticks;
 
-  eeprom_write(CONF_EEPROM_POS, buf, 2);
+  eeprom_write_block(buf, CONF_EEPROM_ADDR, sizeof(buf));
 }
 
 /* 1Khz scheduler */
