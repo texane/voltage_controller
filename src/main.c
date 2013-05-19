@@ -429,13 +429,49 @@ static void adc_read_vout(uint16_t* val)
 
 /* application */
 
-/* scheduler configuration */
+/* timer configuration */
 
 #define TIMER_FREQ 100
 #define TIMER_MS_TO_TICKS(__x) \
   (((uint32_t)(__x) * (uint32_t)TIMER_FREQ) / (uint32_t)1000)
 #define TIMER_TICKS_TO_MS(__x) \
   (((uint32_t)(__x) * (uint32_t)1000) / (uint32_t)TIMER_FREQ)
+
+/* opto control pins */
+
+#define OPTO_COMMON_DDR DDRB
+#define OPTO_COMMON_PORT PORTB
+#define OPTO_PARALLEL_POS 0
+#define OPTO_PARALLEL_MASK (1 << OPTO_PARALLEL_POS)
+#define OPTO_SERIES_POS 1
+#define OPTO_SERIES_MASK (1 << OPTO_SERIES_POS)
+#define OPTO_COMMON_MASK (OPTO_PARALLEL_MASK | OPTO_SERIES_MASK)
+
+static void opto_setup(void)
+{
+  OPTO_COMMON_DDR |= OPTO_COMMON_MASK;
+  OPTO_COMMON_PORT &= ~OPTO_COMMON_MASK;
+}
+
+static void opto_enable_parallel(void)
+{
+  OPTO_COMMON_PORT |= OPTO_PARALLEL_MASK;
+}
+
+static void opto_disable_parallel(void)
+{
+  OPTO_COMMON_PORT &= ~OPTO_PARALLEL_MASK;
+}
+
+static void opto_enable_series(void)
+{
+  OPTO_COMMON_PORT |= OPTO_SERIES_MASK;
+}
+
+static void opto_disable_series(void)
+{
+  OPTO_COMMON_PORT &= ~OPTO_SERIES_MASK;
+}
 
 /* buttons ATMEGA328P pin configuration */
 
@@ -597,11 +633,9 @@ int main(void)
 #endif
 
   conf_load();
-
+  opto_setup();
   but_setup();
-
   adc_setup();
-
   timer_disable();
 
   sei();
@@ -613,6 +647,7 @@ int main(void)
   while (1)
   {
   do_parallel_mode:
+    opto_enable_parallel();
     adc_read_vcap(&prev_vcap);
     timer_enable();
 
@@ -622,6 +657,7 @@ int main(void)
     {
       if (but_read() & BUT_SAVE_MASK)
       {
+	opto_disable_parallel();
 	timer_disable();
 	goto do_buttons;
       }
@@ -637,6 +673,7 @@ int main(void)
       /* voltage stable long enough  */
       if (timer_ticks >= conf_parallel_ticks)
       {
+	opto_disable_parallel();
 	timer_disable();
 	break ;
       }
@@ -645,6 +682,7 @@ int main(void)
     ++opto_pulses;
 
     /* do_series_mode: */
+    opto_enable_series();
     timer_enable();
     while (timer_ticks < conf_series_ticks)
     {
@@ -654,6 +692,7 @@ int main(void)
       /* TODO: lcd_write(vout); */
       /* TODO: lcd_write(vcap); */
     }
+    opto_disable_series();
 
     /* do_update_ppm: */
 
