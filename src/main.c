@@ -47,19 +47,19 @@
 /* note: lcd model MC21605A6W */
 /* note: DB0:3 and RW must be grounded */
 
-#define LCD_POS_DB 0x00
-#define LCD_PORT_DB PORTC
-#define LCD_DIR_DB DDRC
+#define LCD_POS_DB 0x02
+#define LCD_PORT_DB PORTD
+#define LCD_DIR_DB DDRD
 #define LCD_MASK_DB (0x0f << LCD_POS_DB)
 
-#define LCD_POS_RS 0x04
-#define LCD_PORT_RS PORTC
-#define LCD_DIR_RS DDRC
+#define LCD_POS_RS 0x06
+#define LCD_PORT_RS PORTD
+#define LCD_DIR_RS DDRD
 #define LCD_MASK_RS (0x01 << LCD_POS_RS)
 
-#define LCD_POS_EN 0x05
-#define LCD_PORT_EN PORTC
-#define LCD_DIR_EN DDRC
+#define LCD_POS_EN 0x07
+#define LCD_PORT_EN PORTD
+#define LCD_DIR_EN DDRD
 #define LCD_MASK_EN (0x01 << LCD_POS_EN)
 
 
@@ -399,6 +399,12 @@ static void eeprom_read(uint8_t pos, uint8_t* buf, uint8_t n)
 
 /* adc */
 
+#define ADC_POS_VCAP 0x00
+#define ADC_DDR_VCAP DDRC
+
+#define ADC_POS_VOUT 0x01
+#define ADC_DDR_VOUT DDRC
+
 #define ADC_CONV_VOLT(__x) (((__x) * 1024) / 5)
 
 static void adc_setup(void)
@@ -408,6 +414,16 @@ static void adc_setup(void)
 static uint16_t adc_read(uint8_t chan)
 {
   return 0;
+}
+
+static uint16_t adc_read_vcap(void)
+{
+  return adc_read(ADC_POS_VCAP);
+}
+
+static uint16_t read_read_vout(void)
+{
+  return adc_read(ADC_POS_VOUT);
 }
 
 
@@ -513,18 +529,6 @@ static void conf_store(void)
 
 /* 1Khz scheduler */
 
-static uint16_t read_cap_voltage(void)
-{
-#define ADC_CAP_CHAN 0
-  return adc_read(ADC_CAP_CHAN);
-}
-
-static uint16_t read_bat_voltage(void)
-{
-#define ADC_BAT_CHAN 1
-  return adc_read(ADC_BAT_CHAN);
-}
-
 static uint16_t abs_diff(uint16_t a, uint16_t b)
 {
   if (a > b) return a - b;
@@ -545,7 +549,7 @@ ISR(TIMER2_OVF_vect)
 
   if (cap_state == CAP_STATE_PARALLEL)
   {
-    v = read_cap_voltage();
+    v = adc_read_vcap();
 
     if (abs_diff(v, prev_vcap) >= ADC_CONV_VOLT(1))
     {
@@ -576,7 +580,7 @@ ISR(TIMER2_OVF_vect)
 
   if ((lcd_ticks++) == conf_lcd_ticks)
   {
-    /* TODO: lcd_write(vbat) */
+    /* TODO: lcd_write(vout) */
     /* TODO: lcd_write(vcap) */
     /* TODO: lcd_write(opto_ppm) */
 
