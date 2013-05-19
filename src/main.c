@@ -431,7 +431,7 @@ static void adc_read_vout(uint16_t* val)
 
 /* scheduler configuration */
 
-#define TIMER_FREQ 1000
+#define TIMER_FREQ 400
 #define TIMER_MS_TO_TICKS(__x) \
   (((uint32_t)(__x) * (uint32_t)TIMER_FREQ) / (uint32_t)1000)
 #define TIMER_TICKS_TO_MS(__x) \
@@ -540,7 +540,7 @@ static volatile uint16_t vcap = 0;
 static volatile uint16_t vout = 0;
 static volatile uint8_t update_lcd = 0;
 
-ISR(TIMER2_OVF_vect)
+ISR(TIMER1_COMPA_vect)
 {
   static uint16_t cap_ticks = 0;
   static uint16_t lcd_ticks = 0;
@@ -590,9 +590,27 @@ ISR(TIMER2_OVF_vect)
   }
 }
 
-static void timer_setup_1khz(void)
+static void timer_setup(void)
 {
-  /* interrupt every 1 ms */
+  /* 16 bits timer1 is used */
+  /* interrupt at TIMER_FREQ hz */
+  /* fcpu / (64 * 625) = 400 hz */
+
+  /* stop timer */
+  TCCR0B = 0;
+
+  /* CTC mode, overflow when OCR1A reached */
+  TCCR1A = 0;
+  OCR1A = 625;
+  TCNT1 = 0;
+  TCCR1C = 0;
+
+  /* interrupt on OCIE0A match */
+  TIMSK1 = 1 << 1;
+
+  /* start timer */
+  /* prescaler set to 64 */
+  TCCR1B = (1 << 3) | (3 << 0);
 }
 
 
@@ -610,6 +628,12 @@ int main(void)
 #if CONFIG_UART
   uart_setup();
 #endif
+
+  conf_load();
+
+  adc_setup();
+
+  timer_setup();
 
   sei();
 
