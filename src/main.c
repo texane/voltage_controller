@@ -339,16 +339,25 @@ static unsigned int double_to_string(double x, const uint8_t** s)
 
 
 /* eeprom */
+/* word size 16 bits */
+/* total size: 16K words */
+/* page size: 64 words */
+/* page count: 256 */
+
+#define EEPROM_PAGE_SIZE 128 /* in bytes */
+static uint8_t eeprom_page_buf[EEPROM_PAGE_SIZE];
 
 static void eeprom_setup(void)
 {
 }
 
-static void eeprom_write(uint8_t* buf, uint8_t size)
+static void eeprom_write(uint8_t pos, uint8_t* buf, uint8_t n)
 {
+  /* pos the page position */
+  /* n the page count */
 }
 
-static void eeprom_read(uint8_t* buf, uint8_t size)
+static void eeprom_read(uint8_t pos, uint8_t* buf, uint8_t n)
 {
 }
 
@@ -402,7 +411,8 @@ static uint8_t cap_state = CAP_STATE_PARALLEL;
 
 /* user configured time */
 
-#define CONF_EEPROM_MAGIC 0xbeef
+#define CONF_EEPROM_MAGIC 0xdeadbeef
+#define CONF_EEPROM_POS 42 /* max: 256 */
 
 static uint16_t conf_parallel_ms;
 static uint16_t conf_series_ms;
@@ -411,11 +421,9 @@ static void conf_load(void)
 {
   /* load configuration value from eeprom */
 
-  uint16_t buf[3];
+  eeprom_read(CONF_EEPROM_POS, eeprom_page_buf, 1);
 
-  eeprom_read((uint8_t*)buf, sizeof(buf));
-
-  if (buf[0] != CONF_EEPROM_MAGIC)
+  if (*(uint32_t*)eeprom_page_buf != CONF_EEPROM_MAGIC)
   {
     /* default if eeprom not written */
     conf_parallel_ms = 10;
@@ -424,8 +432,8 @@ static void conf_load(void)
   else
   {
     /* check according to conds */
-    conf_parallel_ms = buf[1];
-    conf_series_ms = buf[2];
+    conf_parallel_ms = *(uint16_t*)(eeprom_page_buf + 4);
+    conf_series_ms = *(uint16_t*)(eeprom_page_buf + 6);
     if ((conf_parallel_ms < 10) || (conf_parallel_ms > 1000))
       conf_parallel_ms = 10;
     if ((conf_series_ms < 10) || (conf_series_ms > 500))
@@ -435,13 +443,11 @@ static void conf_load(void)
 
 static void conf_store(void)
 {
-  uint16_t buf[3];
+  *(uint32_t*)eeprom_page_buf = CONF_EEPROM_MAGIC;
+  *(uint16_t*)(eeprom_page_buf + 4) = conf_parallel_ms;
+  *(uint16_t*)(eeprom_page_buf + 6) = conf_series_ms;
 
-  buf[0] = CONF_EEPROM_MAGIC;
-  buf[1] = conf_parallel_ms;
-  buf[2] = conf_series_ms;
-
-  eeprom_write((uint8_t*)buf, sizeof(buf));
+  eeprom_write(CONF_EEPROM_POS, eeprom_page_buf, 1);
 }
 
 /* opto pulse per minute */
