@@ -1,7 +1,14 @@
 /* theory of operation
-   c1,c2 connection type is controlled by optocouplers. they
-   can be connected in parallel or in serie. When in serie,
-   they dump their charge into the batterie.
+
+   By default, caps c1,c2 are connected in parallel and a
+   microcontroller measures the voltage accross them. When
+   the voltage does not vary for more than a configured delay,
+   the microcontroller switch to series mode to dump their
+   charge into a battery for a configured delay.
+
+   by pushing a plus or minus button, the user can setup the
+   time a constant voltage is considered to trigger the timing
+   logic. the values can be saved into the EEPROM.
 
    condition a
    when c1,c2 connected in parallel and v(c1,c2) does not
@@ -205,6 +212,7 @@ static void lcd_write(const uint8_t* s, unsigned int n)
 
 #endif /* CONFIG_LCD */
 
+
 #if CONFIG_UART /* uart */
 
 static inline void set_baud_rate(long baud)
@@ -328,6 +336,120 @@ static unsigned int double_to_string(double x, const uint8_t** s)
 
   return len;
 }
+
+
+/* eeprom */
+
+static void eeprom_setup(void)
+{
+}
+
+static void eeprom_write(uint8_t* buf, uint8_t size)
+{
+}
+
+static void eeprom_read(uint8_t* buf, uint8_t size)
+{
+}
+
+
+/* adc */
+
+static void adc_setup(void)
+{
+}
+
+static void adc_read(uint8_t chan)
+{
+}
+
+
+/* application */
+
+/* buttons ATMEGA328P pin configuration */
+
+#define BUT_COMMON_DDR DDRC
+#define BUT_COMMON_PIN PINC
+
+#define BUT_PLUS_POS 0
+#define BUT_MINUS_POS 1
+#define BUT_MODE_POS 2
+#define BUT_SAVE_POS 3
+
+#define BUT_PLUS_MASK (1 << BUT_PLUS_POS)
+#define BUT_MINUS_MASK (1 << BUT_MINUS_POS)
+#define BUT_MODE_MASK (1 << BUT_MODE_POS)
+#define BUT_SAVE_MASK (1 << BUT_SAVE_POS)
+
+#define BUT_COMMON_MASK \
+  (BUT_PLUS_MASK | BUT_MINUS_MASK | BUT_MODE_MASK | BUT_SAVE_MASK)
+
+static void but_setup(void)
+{
+  BUT_COMMON_DDR &= ~BUT_COMMON_MASK;
+}
+
+static uint8_t but_read(void)
+{
+  return BUT_COMMON_PIN & BUT_COMMON_MASK;
+}
+
+/* capacitor connection state */
+
+#define CAP_STATE_PARALLEL 0
+#define CAP_STATE_SERIES 1
+static uint8_t cap_state = CAP_STATE_PARALLEL;
+
+/* user configured time */
+
+#define CONF_EEPROM_MAGIC 0xbeef
+
+static uint16_t conf_parallel_ms;
+static uint16_t conf_series_ms;
+
+static void conf_load(void)
+{
+  /* load configuration value from eeprom */
+
+  uint16_t buf[3];
+
+  eeprom_read((uint8_t*)buf, sizeof(buf));
+
+  if (buf[0] != CONF_EEPROM_MAGIC)
+  {
+    /* default if eeprom not written */
+    conf_parallel_ms = 10;
+    conf_series_ms = 500;
+  }
+  else
+  {
+    /* check according to conds */
+    conf_parallel_ms = buf[1];
+    conf_series_ms = buf[2];
+    if ((conf_parallel_ms < 10) || (conf_parallel_ms > 1000))
+      conf_parallel_ms = 10;
+    if ((conf_series_ms < 10) || (conf_series_ms > 500))
+      conf_series_ms = 500;
+  }
+}
+
+static void conf_store(void)
+{
+  uint16_t buf[3];
+
+  buf[0] = CONF_EEPROM_MAGIC;
+  buf[1] = conf_parallel_ms;
+  buf[2] = conf_series_ms;
+
+  eeprom_write((uint8_t*)buf, sizeof(buf));
+}
+
+/* opto pulse per minute */
+
+static uint16_t opto_ppm = 0;
+
+
+/* main */
 
 int main(void)
 {
