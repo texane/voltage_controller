@@ -364,16 +364,27 @@ static void eeprom_read(uint8_t pos, uint8_t* buf, uint8_t n)
 
 /* adc */
 
+#define ADC_CONV_VOLT(__x) (((__x) * 1024) / 5)
+
 static void adc_setup(void)
 {
 }
 
-static void adc_read(uint8_t chan)
+static uint16_t adc_read(uint8_t chan)
 {
+  return 0;
 }
 
 
 /* application */
+
+/* scheduler configuration */
+
+#define TIMER_FREQ 1000
+#define TIMER_MS_TO_TICKS(__x) \
+  (((uint32_t)(__x) * (uint32_t)TIMER_FREQ) / (uint32_t)1000)
+#define TIMER_TICKS_TO_MS(__x) \
+  (((uint32_t)(__x) * (uint32_t)1000) / (uint32_t)TIMER_FREQ)
 
 /* buttons ATMEGA328P pin configuration */
 
@@ -407,15 +418,16 @@ static uint8_t but_read(void)
 
 #define CAP_STATE_PARALLEL 0
 #define CAP_STATE_SERIES 1
-static uint8_t cap_state = CAP_STATE_PARALLEL;
+static volatile uint8_t cap_state = CAP_STATE_PARALLEL;
 
 /* user configured time */
 
 #define CONF_EEPROM_MAGIC 0xdeadbeef
 #define CONF_EEPROM_POS 42 /* max: 256 */
 
-static uint16_t conf_parallel_ms;
-static uint16_t conf_series_ms;
+static uint16_t conf_parallel_ticks;
+static uint16_t conf_series_ticks;
+static uint16_t conf_lcd_ticks;
 
 static void conf_load(void)
 {
@@ -426,33 +438,117 @@ static void conf_load(void)
   if (*(uint32_t*)eeprom_page_buf != CONF_EEPROM_MAGIC)
   {
     /* default if eeprom not written */
-    conf_parallel_ms = 10;
-    conf_series_ms = 500;
+    conf_parallel_ticks = TIMER_MS_TO_TICKS(10);
+    conf_series_ticks = TIMER_MS_TO_TICKS(500);
   }
   else
   {
-    /* check according to conds */
-    conf_parallel_ms = *(uint16_t*)(eeprom_page_buf + 4);
-    conf_series_ms = *(uint16_t*)(eeprom_page_buf + 6);
-    if ((conf_parallel_ms < 10) || (conf_parallel_ms > 1000))
-      conf_parallel_ms = 10;
-    if ((conf_series_ms < 10) || (conf_series_ms > 500))
-      conf_series_ms = 500;
+    /* check ranges */
+
+    conf_parallel_ticks = *(uint16_t*)(eeprom_page_buf + 4);
+    conf_series_ticks = *(uint16_t*)(eeprom_page_buf + 6);
+
+    if (conf_parallel_ticks < TIMER_MS_TO_TICKS(10))
+      conf_parallel_ticks = TIMER_MS_TO_TICKS(10);
+    else if (conf_parallel_ticks > TIMER_MS_TO_TICKS(1000))
+      conf_parallel_ticks = TIMER_MS_TO_TICKS(1000);
+
+    if (conf_series_ticks < TIMER_MS_TO_TICKS(10))
+      conf_series_ticks = TIMER_MS_TO_TICKS(10);
+    else if (conf_series_ticks > TIMER_MS_TO_TICKS(500))
+      conf_series_ticks = TIMER_MS_TO_TICKS(500);
   }
+
+  /* not loaded from eeprom */
+  conf_lcd_ticks = TIMER_MS_TO_TICKS(500);
 }
 
 static void conf_store(void)
 {
   *(uint32_t*)eeprom_page_buf = CONF_EEPROM_MAGIC;
-  *(uint16_t*)(eeprom_page_buf + 4) = conf_parallel_ms;
-  *(uint16_t*)(eeprom_page_buf + 6) = conf_series_ms;
+  *(uint16_t*)(eeprom_page_buf + 4) = conf_parallel_ticks;
+  *(uint16_t*)(eeprom_page_buf + 6) = conf_series_ticks;
 
   eeprom_write(CONF_EEPROM_POS, eeprom_page_buf, 1);
 }
 
-/* opto pulse per minute */
+/* 1Khz scheduler */
 
-static uint16_t opto_ppm = 0;
+static uint16_t read_cap_voltage(void)
+{
+#define ADC_CAP_CHAN 0
+  return adc_read(ADC_CAP_CHAN);
+}
+
+static uint16_t read_bat_voltage(void)
+{
+#define ADC_BAT_CHAN 1
+  return adc_read(ADC_BAT_CHAN);
+}
+
+static uint16_t abs_diff(uint16_t a, uint16_t b)
+{
+  if (a > b) return a - b;
+  return b - a;
+}
+
+ISR(TIMER2_OVF_vect)
+{
+  static uint16_t cap_ticks = 0;
+  static uint16_t lcd_ticks = 0;
+  static uint16_t prev_vcap = (uint16_t)-1;
+  static uint16_t opto_ppm = 0;
+  uint16_t v;
+
+  /* steady voltage */
+
+  ++cap_ticks;
+
+  if (cap_state == CAP_STATE_PARALLEL)
+  {
+    v = read_cap_voltage();
+
+    if (abs_diff(v, prev_vcap) >= ADC_CONV_VOLT(1))
+    {
+      prev_vcap = v;
+      cap_ticks = 0;
+    }
+    else if (cap_ticks == conf_parallel_ticks)
+    {
+      /* TODO: switch to series mode */
+      /* TODO: update opto_ppm */
+
+      cap_state = CAP_STATE_SERIES;
+      prev_vcap = (uint16_t)-1;
+      cap_ticks = 0;
+    }
+  }
+  else if (cap_state == CAP_STATE_SERIES)
+  {
+    if (cap_ticks == conf_series_ticks)
+    {
+      /* TODO: switch to parallel */
+      cap_state = CAP_STATE_PARALLEL;
+      cap_ticks = 0;
+    }
+  }
+ 
+  /* refresh display every conf_lcd_ticks */
+
+  if ((lcd_ticks++) == conf_lcd_ticks)
+  {
+    /* TODO: lcd_write(vbat) */
+    /* TODO: lcd_write(vcap) */
+    /* TODO: lcd_write(opto_ppm) */
+
+    lcd_ticks = 0;
+  }
+}
+
+static void timer_setup_1khz(void)
+{
+  /* interrupt every 1 ms */
+}
 
 
 /* main */
