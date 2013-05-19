@@ -39,7 +39,7 @@
 
 
 #define CONFIG_LCD 1
-#define CONFIG_UART 0
+#define CONFIG_UART 1
 
 
 #if CONFIG_LCD
@@ -513,7 +513,7 @@ static void conf_load(void)
   }
 
   /* not loaded from eeprom */
-  conf_lcd_ticks = TIMER_MS_TO_TICKS(500);
+  conf_lcd_ticks = TIMER_MS_TO_TICKS(1000);
 }
 
 static void conf_store(void)
@@ -646,6 +646,8 @@ int main(void)
       /* TODO: lcd_write(vout) */
       /* TODO: lcd_write(vcap) */
       /* TODO: lcd_write(opto_ppm) */
+
+      uart_write((uint8_t*)"x\r\n", 3);
 
       update_lcd = 0;
     }
