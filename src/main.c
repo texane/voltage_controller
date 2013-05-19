@@ -411,19 +411,19 @@ static void adc_setup(void)
 {
 }
 
-static uint16_t adc_read(uint8_t chan)
+static void adc_read(uint8_t chan, uint16_t* val)
 {
-  return 0;
+  *val = 0;
 }
 
-static uint16_t adc_read_vcap(void)
+static void adc_read_vcap(uint16_t* val)
 {
-  return adc_read(ADC_POS_VCAP);
+  adc_read(ADC_POS_VCAP, val);
 }
 
-static uint16_t read_read_vout(void)
+static void adc_read_vout(uint16_t* val)
 {
-  return adc_read(ADC_POS_VOUT);
+  adc_read(ADC_POS_VOUT, val);
 }
 
 
@@ -442,10 +442,10 @@ static uint16_t read_read_vout(void)
 #define BUT_COMMON_DDR DDRC
 #define BUT_COMMON_PIN PINC
 
-#define BUT_PLUS_POS 0
-#define BUT_MINUS_POS 1
-#define BUT_MODE_POS 2
-#define BUT_SAVE_POS 3
+#define BUT_PLUS_POS 2
+#define BUT_MINUS_POS 3
+#define BUT_MODE_POS 4
+#define BUT_SAVE_POS 5
 
 #define BUT_PLUS_MASK (1 << BUT_PLUS_POS)
 #define BUT_MINUS_MASK (1 << BUT_MINUS_POS)
@@ -535,25 +535,30 @@ static uint16_t abs_diff(uint16_t a, uint16_t b)
   return b - a;
 }
 
+static volatile uint16_t opto_ppm = 0;
+static volatile uint16_t vcap = 0;
+static volatile uint16_t vout = 0;
+static volatile uint8_t update_lcd = 0;
+
 ISR(TIMER2_OVF_vect)
 {
   static uint16_t cap_ticks = 0;
   static uint16_t lcd_ticks = 0;
   static uint16_t prev_vcap = (uint16_t)-1;
-  static uint16_t opto_ppm = 0;
-  uint16_t v;
 
-  /* steady voltage */
+  /* cap voltage handling */
+
+  adc_read_vcap((uint16_t*)&vcap);
+  adc_read_vout((uint16_t*)&vout);
 
   ++cap_ticks;
 
   if (cap_state == CAP_STATE_PARALLEL)
   {
-    v = adc_read_vcap();
-
-    if (abs_diff(v, prev_vcap) >= ADC_CONV_VOLT(1))
+    /* apply 100 to 5 volts scaling, 1 volts became 1/20 */
+    if (abs_diff(vcap, prev_vcap) >= ADC_CONV_VOLT(0.05))
     {
-      prev_vcap = v;
+      prev_vcap = vcap;
       cap_ticks = 0;
     }
     else if (cap_ticks == conf_parallel_ticks)
@@ -580,10 +585,7 @@ ISR(TIMER2_OVF_vect)
 
   if ((lcd_ticks++) == conf_lcd_ticks)
   {
-    /* TODO: lcd_write(vout) */
-    /* TODO: lcd_write(vcap) */
-    /* TODO: lcd_write(opto_ppm) */
-
+    update_lcd = 1;
     lcd_ticks = 0;
   }
 }
@@ -610,6 +612,20 @@ int main(void)
 #endif
 
   sei();
+
+  /* low priority task */
+
+  while (1)
+  {
+    if (update_lcd)
+    {
+      /* TODO: lcd_write(vout) */
+      /* TODO: lcd_write(vcap) */
+      /* TODO: lcd_write(opto_ppm) */
+
+      update_lcd = 0;
+    }
+  }
 
   return 0;
 }
