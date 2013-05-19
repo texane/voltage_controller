@@ -431,7 +431,7 @@ static void adc_read_vout(uint16_t* val)
 
 /* scheduler configuration */
 
-#define TIMER_FREQ 400
+#define TIMER_FREQ 100
 #define TIMER_MS_TO_TICKS(__x) \
   (((uint32_t)(__x) * (uint32_t)TIMER_FREQ) / (uint32_t)1000)
 #define TIMER_TICKS_TO_MS(__x) \
@@ -465,17 +465,11 @@ static uint8_t but_read(void)
   return BUT_COMMON_PIN & BUT_COMMON_MASK;
 }
 
-/* capacitor connection state */
-
-#define CAP_STATE_PARALLEL 0
-#define CAP_STATE_SERIES 1
-static volatile uint8_t cap_state = CAP_STATE_PARALLEL;
-
 /* user configured ticks */
 
-static uint16_t conf_parallel_ticks;
-static uint16_t conf_series_ticks;
-static uint16_t conf_lcd_ticks;
+static uint8_t conf_parallel_ticks;
+static uint8_t conf_series_ticks;
+static uint8_t conf_lcd_ticks;
 
 #define CONF_EEPROM_MAGIC 0xdeadbeef
 #define CONF_EEPROM_ADDR ((void*)42) /* max: 256 */
@@ -498,8 +492,8 @@ static void conf_load(void)
   {
     /* check ranges */
 
-    conf_parallel_ticks = *(uint16_t*)(buf + 4);
-    conf_series_ticks = *(uint16_t*)(buf + 6);
+    conf_parallel_ticks = *(uint8_t*)(buf + 4);
+    conf_series_ticks = *(uint8_t*)(buf + 5);
 
     if (conf_parallel_ticks < TIMER_MS_TO_TICKS(10))
       conf_parallel_ticks = TIMER_MS_TO_TICKS(10);
@@ -521,13 +515,56 @@ static void conf_store(void)
   uint8_t buf[8];
 
   *(uint32_t*)buf = CONF_EEPROM_MAGIC;
-  *(uint16_t*)(buf + 4) = conf_parallel_ticks;
-  *(uint16_t*)(buf + 6) = conf_series_ticks;
+  *(uint8_t*)(buf + 4) = conf_parallel_ticks;
+  *(uint8_t*)(buf + 5) = conf_series_ticks;
 
   eeprom_write_block(buf, CONF_EEPROM_ADDR, sizeof(buf));
 }
 
-/* 1Khz scheduler */
+/* timer1 interrupt handler */
+
+static volatile uint8_t timer_ticks = 0;
+
+ISR(TIMER1_COMPA_vect)
+{
+  /* prevent overflow */
+  if (timer_ticks == 0xff) return ;
+  ++timer_ticks;
+}
+
+static void timer_enable(void)
+{
+  /* 16 bits timer1 is used */
+  /* interrupt at TIMER_FREQ hz */
+  /* fcpu / (64 * 2500) = 100 hz */
+
+  /* stop timer */
+  TCCR0B = 0;
+
+  /* CTC mode, overflow when OCR1A reached */
+  TCCR1A = 0;
+  OCR1A = 2500;
+  TCNT1 = 0;
+  TCCR1C = 0;
+
+  /* interrupt on OCIE0A match */
+  TIMSK1 = 1 << 1;
+
+  /* reset timer tick counter */
+  timer_ticks = 0;
+
+  /* start timer */
+  /* prescaler set to 64 */
+  TCCR1B = (1 << 3) | (3 << 0);
+}
+
+static void timer_disable(void)
+{
+  TCCR0B = 0;
+}
+
+
+/* absolute difference */
 
 static uint16_t abs_diff(uint16_t a, uint16_t b)
 {
@@ -535,89 +572,19 @@ static uint16_t abs_diff(uint16_t a, uint16_t b)
   return b - a;
 }
 
-static volatile uint16_t opto_ppm = 0;
-static volatile uint16_t vcap = 0;
-static volatile uint16_t vout = 0;
-static volatile uint8_t update_lcd = 0;
-
-ISR(TIMER1_COMPA_vect)
-{
-  static uint16_t cap_ticks = 0;
-  static uint16_t lcd_ticks = 0;
-  static uint16_t prev_vcap = (uint16_t)-1;
-
-  /* cap voltage handling */
-
-  adc_read_vcap((uint16_t*)&vcap);
-  adc_read_vout((uint16_t*)&vout);
-
-  ++cap_ticks;
-
-  if (cap_state == CAP_STATE_PARALLEL)
-  {
-    /* apply 100 to 5 volts scaling, 1 volts became 1/20 */
-    if (abs_diff(vcap, prev_vcap) >= ADC_CONV_VOLT(0.05))
-    {
-      prev_vcap = vcap;
-      cap_ticks = 0;
-    }
-    else if (cap_ticks == conf_parallel_ticks)
-    {
-      /* TODO: switch to series mode */
-      /* TODO: update opto_ppm */
-
-      cap_state = CAP_STATE_SERIES;
-      prev_vcap = (uint16_t)-1;
-      cap_ticks = 0;
-    }
-  }
-  else if (cap_state == CAP_STATE_SERIES)
-  {
-    if (cap_ticks == conf_series_ticks)
-    {
-      /* TODO: switch to parallel */
-      cap_state = CAP_STATE_PARALLEL;
-      cap_ticks = 0;
-    }
-  }
- 
-  /* refresh display every conf_lcd_ticks */
-
-  if ((lcd_ticks++) == conf_lcd_ticks)
-  {
-    update_lcd = 1;
-    lcd_ticks = 0;
-  }
-}
-
-static void timer_setup(void)
-{
-  /* 16 bits timer1 is used */
-  /* interrupt at TIMER_FREQ hz */
-  /* fcpu / (64 * 625) = 400 hz */
-
-  /* stop timer */
-  TCCR0B = 0;
-
-  /* CTC mode, overflow when OCR1A reached */
-  TCCR1A = 0;
-  OCR1A = 625;
-  TCNT1 = 0;
-  TCCR1C = 0;
-
-  /* interrupt on OCIE0A match */
-  TIMSK1 = 1 << 1;
-
-  /* start timer */
-  /* prescaler set to 64 */
-  TCCR1B = (1 << 3) | (3 << 0);
-}
-
 
 /* main */
 
 int main(void)
 {
+  uint8_t* value;
+  uint8_t mode;
+  uint8_t but;
+  uint16_t vcap;
+  uint16_t vout;
+  uint16_t prev_vcap;
+  uint8_t opto_pulses;
+
 #if CONFIG_LCD
   /* lcd */
   lcd_setup();
@@ -631,25 +598,98 @@ int main(void)
 
   conf_load();
 
+  but_setup();
+
   adc_setup();
 
-  timer_setup();
+  timer_disable();
 
   sei();
 
-  /* low priority task */
+  /* voltage controller logic */
+
+  opto_pulses = 0;
 
   while (1)
   {
-    if (update_lcd)
+  do_parallel_mode:
+    adc_read_vcap(&prev_vcap);
+    timer_enable();
+
+    /* TODO: lcd_write(prev_vcap); */
+
+    while (1)
     {
-      /* TODO: lcd_write(vout) */
-      /* TODO: lcd_write(vcap) */
-      /* TODO: lcd_write(opto_ppm) */
+      if (but_read() & BUT_SAVE_MASK)
+      {
+	timer_disable();
+	goto do_buttons;
+      }
 
-      uart_write((uint8_t*)"x\r\n", 3);
+      adc_read_vcap(&vcap);
 
-      update_lcd = 0;
+      /* apply 100 to 5 volts scaling, 1 volt becomes 0.05 */
+      if (abs_diff(vcap, prev_vcap) >= ADC_CONV_VOLT(0.05))
+      {
+	goto do_parallel_mode;
+      }
+
+      /* voltage stable long enough  */
+      if (timer_ticks >= conf_parallel_ticks)
+      {
+	timer_disable();
+	break ;
+      }
+    }
+
+    ++opto_pulses;
+
+    /* do_series_mode: */
+    timer_enable();
+    while (timer_ticks < conf_series_ticks)
+    {
+      adc_read_vcap(&vcap);
+      adc_read_vout(&vout);
+
+      /* TODO: lcd_write(vout); */
+      /* TODO: lcd_write(vcap); */
+    }
+
+    /* do_update_ppm: */
+
+  do_buttons:
+#define CONF_MODE_PARALLEL 0
+#define CONF_MODE_SERIES 1
+    mode = CONF_MODE_PARALLEL;
+    if ((but = but_read()) & BUT_SAVE_MASK)
+    {
+      while (1)
+      {
+	but = but_read();
+
+	/* toggle mode */
+	if (but & BUT_MODE_MASK) mode ^= 1;
+	
+	/* update values */
+	if (mode == CONF_MODE_PARALLEL) value = &conf_parallel_ticks;
+	else value = &conf_series_ticks;
+	if (but & BUT_MINUS_MASK) *value -= TIMER_MS_TO_TICKS(10);
+	if (but & BUT_PLUS_MASK) *value += TIMER_MS_TO_TICKS(10);
+
+	/* update if something has changed */
+	if (but)
+	{
+	  /* TODO: lcd_write(mode); */
+	  /* TODO: lcd_write(value); */
+	}
+
+	/* save values and leaves */
+	if (but & BUT_SAVE_MASK)
+	{
+	  conf_store();
+	  break ;
+	}
+      }
     }
   }
 
