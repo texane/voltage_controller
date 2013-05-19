@@ -339,13 +339,11 @@ static unsigned int double_to_string(double x, const uint8_t** s)
 
 
 /* eeprom */
-/* word size 16 bits */
-/* total size: 16K words */
-/* page size: 64 words */
+/* total size: 1Kb */
+/* page size: 4 bytes */
 /* page count: 256 */
 
-#define EEPROM_PAGE_SIZE 128 /* in bytes */
-static uint8_t eeprom_page_buf[EEPROM_PAGE_SIZE];
+#define EEPROM_PAGE_SIZE 4 /* in bytes */
 
 static void eeprom_setup(void)
 {
@@ -433,9 +431,11 @@ static void conf_load(void)
 {
   /* load configuration value from eeprom */
 
-  eeprom_read(CONF_EEPROM_POS, eeprom_page_buf, 1);
+  uint8_t buf[EEPROM_PAGE_SIZE * 2];
 
-  if (*(uint32_t*)eeprom_page_buf != CONF_EEPROM_MAGIC)
+  eeprom_read(CONF_EEPROM_POS, buf, 2);
+
+  if (*(uint32_t*)buf != CONF_EEPROM_MAGIC)
   {
     /* default if eeprom not written */
     conf_parallel_ticks = TIMER_MS_TO_TICKS(10);
@@ -445,8 +445,8 @@ static void conf_load(void)
   {
     /* check ranges */
 
-    conf_parallel_ticks = *(uint16_t*)(eeprom_page_buf + 4);
-    conf_series_ticks = *(uint16_t*)(eeprom_page_buf + 6);
+    conf_parallel_ticks = *(uint16_t*)(buf + 4);
+    conf_series_ticks = *(uint16_t*)(buf + 6);
 
     if (conf_parallel_ticks < TIMER_MS_TO_TICKS(10))
       conf_parallel_ticks = TIMER_MS_TO_TICKS(10);
@@ -465,11 +465,13 @@ static void conf_load(void)
 
 static void conf_store(void)
 {
-  *(uint32_t*)eeprom_page_buf = CONF_EEPROM_MAGIC;
-  *(uint16_t*)(eeprom_page_buf + 4) = conf_parallel_ticks;
-  *(uint16_t*)(eeprom_page_buf + 6) = conf_series_ticks;
+  uint8_t buf[EEPROM_PAGE_SIZE * 2];
 
-  eeprom_write(CONF_EEPROM_POS, eeprom_page_buf, 1);
+  *(uint32_t*)buf = CONF_EEPROM_MAGIC;
+  *(uint16_t*)(buf + 4) = conf_parallel_ticks;
+  *(uint16_t*)(buf + 6) = conf_series_ticks;
+
+  eeprom_write(CONF_EEPROM_POS, buf, 2);
 }
 
 /* 1Khz scheduler */
