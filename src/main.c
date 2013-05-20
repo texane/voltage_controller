@@ -192,10 +192,22 @@ static inline void lcd_home(void)
   wait_2_ms();
 }
 
-static inline void lcd_set_cursor(uint8_t addr)
+static inline void lcd_set_ddram(uint8_t addr)
 {
   lcd_write_db4((1 << 7) | addr);
   wait_2_ms();
+}
+
+static inline void lcd_goto_xy(uint8_t x, uint8_t y)
+{
+  /* assume 0 <= x < 8 */
+  /* assume 0 <= y < 2 */
+
+  /* from datasheet: */
+  /* first line is 0x00 to 0x27 */
+  /* second line is 0x40 to 0x67 */
+  static const uint8_t row[] = { 0x00, 0x40 };
+  lcd_set_ddram(row[y] + x);
 }
 
 static void lcd_write(const uint8_t* s, unsigned int n)
