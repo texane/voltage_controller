@@ -117,11 +117,11 @@ static inline void lcd_write_db4(uint8_t x)
   /* configured in 4 bits mode */
 
   LCD_PORT_DB &= ~LCD_MASK_DB;
-  LCD_PORT_DB |= (x >> 4) /* >> LCD_POS_DB */ ;
+  LCD_PORT_DB |= (x >> 4) << LCD_POS_DB;
   lcd_pulse_en();
 
   LCD_PORT_DB &= ~LCD_MASK_DB;
-  LCD_PORT_DB |= (x & 0xf) /* >> LCD_POS_DB */ ;
+  LCD_PORT_DB |= (x & 0xf) << LCD_POS_DB;
   lcd_pulse_en();
 }
 
@@ -131,7 +131,7 @@ static inline void lcd_write_db8(uint8_t x)
 
   /* only hi nibble transmitted, (0:3) grounded */
   LCD_PORT_DB &= ~LCD_MASK_DB;
-  LCD_PORT_DB |= (x >> 4) /* >> LCD_POS_DB */ ;
+  LCD_PORT_DB |= (x >> 4) << LCD_POS_DB;
   lcd_pulse_en();
 }
 
