@@ -861,6 +861,7 @@ int main(void)
     opto_disable_series();
 
     /* do_update_ppm: */
+    print_ppm(opto_pulses);
 
     but = but_read();
   do_buttons:
