@@ -207,7 +207,7 @@ static inline void lcd_goto_xy(uint8_t x, uint8_t y)
   /* first line is 0x00 to 0x27 */
   /* second line is 0x40 to 0x67 */
   static const uint8_t row[] = { 0x00, 0x40 };
-  lcd_set_ddram(row[y] + x);
+  lcd_set_ddram(row[y] | x);
 }
 
 static void lcd_write(const uint8_t* s, unsigned int n)
