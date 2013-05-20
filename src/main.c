@@ -320,6 +320,17 @@ static uint8_t* uint8_to_string(uint8_t x)
   return buf;
 }
 
+static uint8_t* uint10_to_string(uint16_t x)
+{
+  static uint8_t buf[3];
+
+  buf[2] = hex(nibble(x, 0));
+  buf[1] = hex(nibble(x, 1));
+  buf[0] = hex(nibble(x, 2));
+
+  return buf;
+}
+
 static unsigned int ulong_to_string(unsigned long n, char* s)
 {
   unsigned char buf[8];
@@ -472,6 +483,7 @@ static void adc_setup(void)
   DIDR0 = ADC_COMMON_MASK;
 }
 
+__attribute__((unused))
 static void adc_wait_25(void)
 {
   /* wait for 25 adc cycles */
@@ -480,14 +492,11 @@ static void adc_wait_25(void)
   for (; x; --x) __asm__ __volatile__ ("nop\n\t");
 }
 
-static void adc_start_free_running(void)
+__attribute__((unused))
+static void adc_start_single_conversion(void)
 {
-  /* enable adc and free running mode */
   ADCSRB = 0;
-  ADCSRA |= (1 << ADEN) | (1 << ADSC) | (1 << ADATE);
-
-  /* the first conversion starts 25 FADC cycles after ADEN set */
-  adc_wait_25();
+  ADCSRA |= (1 << ADEN);
 }
 
 __attribute__((unused))
@@ -496,29 +505,32 @@ static void adc_stop(void)
   ADCSRA &= ~(1 << ADEN);
 }
 
-static void adc_enable_chan(uint8_t chan)
+static void adc_read(uint8_t chan, uint16_t* x)
 {
+  uint8_t l;
+
+  /* select channel */
   ADMUX &= ~0xf;
   ADMUX |= chan;
-}
 
-static void adc_read(uint16_t* x)
-{
+  /* start conversion */
+  ADCSRA |= (1 << ADSC);
+
+  while (ADCSRA & (1 << ADSC)) ;
+
   /* read adcl first */
-  const uint8_t l = ADCL;
+  l = ADCL;
   *x = ((((uint16_t)ADCH) << 8) | (uint16_t)l) & 0x3ff;
 }
 
 static void adc_read_vcap(uint16_t* val)
 {
-  adc_enable_chan(ADC_POS_VCAP);
-  adc_read(val);
+  adc_read(ADC_POS_VCAP, val);
 }
 
 static void adc_read_vout(uint16_t* val)
 {
-  adc_enable_chan(ADC_POS_VOUT);
-  adc_read(val);
+  adc_read(ADC_POS_VOUT, val);
 }
 
 
@@ -605,6 +617,9 @@ static uint8_t but_is_pressed(uint8_t x, uint8_t m)
 }
 
 /* user configured ticks */
+
+#define CONF_MODE_PARALLEL 0
+#define CONF_MODE_SERIES 1
 
 static uint8_t conf_parallel_ticks;
 static uint8_t conf_series_ticks;
@@ -725,6 +740,38 @@ static uint16_t abs_diff(uint16_t a, uint16_t b)
 }
 
 
+/* printing routines */
+
+static void print_voltages(uint16_t vcap, uint16_t vout)
+{
+  lcd_goto_xy(0, 0);
+  lcd_write((const uint8_t*)"        ", 8);
+
+  lcd_goto_xy(0, 0);
+  lcd_write(uint10_to_string(vcap), 3);
+
+  lcd_goto_xy(4, 0);
+  lcd_write(uint10_to_string(vout), 3);
+}
+
+static void print_ppm(uint8_t ppm)
+{
+  lcd_goto_xy(0, 1);
+  lcd_write(uint8_to_string(ppm), 2);
+}
+
+static void print_mode(uint8_t mode, uint8_t value)
+{
+  static const char* s[] = { "parallel", "series  " };
+
+  lcd_goto_xy(0, 0);
+  lcd_write((const uint8_t*)s[mode], 8);
+
+  lcd_goto_xy(0, 1);
+  lcd_write(uint8_to_string(value), 2);
+}
+
+
 /* main */
 
 int main(void)
@@ -735,7 +782,7 @@ int main(void)
   uint8_t mode;
   uint8_t but;
   uint16_t vcap;
-  uint16_t vout;
+  uint16_t vout = 0;
   uint16_t prev_vcap;
   uint8_t opto_pulses;
 
@@ -751,7 +798,7 @@ int main(void)
 #endif
 
   adc_setup();
-  adc_start_free_running();
+  adc_start_single_conversion();
 
   conf_load();
   opto_setup();
@@ -771,7 +818,7 @@ int main(void)
     adc_read_vcap(&prev_vcap);
     timer_enable();
 
-    /* TODO: lcd_write(prev_vcap); */
+    print_voltages(prev_vcap, vout);
 
     while (1)
     {
@@ -809,9 +856,7 @@ int main(void)
     {
       adc_read_vcap(&vcap);
       adc_read_vout(&vout);
-
-      /* TODO: lcd_write(vout); */
-      /* TODO: lcd_write(vcap); */
+      print_voltages(vcap, vout);
     }
     opto_disable_series();
 
@@ -819,8 +864,6 @@ int main(void)
 
     but = but_read();
   do_buttons:
-#define CONF_MODE_PARALLEL 0
-#define CONF_MODE_SERIES 1
     if (but_is_pressed(but, BUT_MODE_MASK))
     {
       mode = CONF_MODE_PARALLEL;
@@ -839,7 +882,8 @@ int main(void)
 #if CONFIG_DEBUG
 	  uart_write_cstring("mode\r\n");
 #endif /* CONFIG_DEBUG */
-	  mode ^= 1;
+	  if (mode == CONF_MODE_PARALLEL) mode = CONF_MODE_SERIES;
+	  else mode = CONF_MODE_PARALLEL;
 	}
 	
 	/* update values */
@@ -887,8 +931,7 @@ int main(void)
 	/* update if something has changed */
 	if (but_is_pressed(but, BUT_COMMON_MASK))
 	{
-	  /* TODO: lcd_write(mode); */
-	  /* TODO: lcd_write(value); */
+	  print_mode(mode, *value);
 	}
 
 	/* save values and leaves */
