@@ -52,16 +52,15 @@
 #define LCD_DIR_DB DDRD
 #define LCD_MASK_DB (0x0f << LCD_POS_DB)
 
-#define LCD_POS_RS 0x06
-#define LCD_PORT_RS PORTD
-#define LCD_DIR_RS DDRD
-#define LCD_MASK_RS (0x01 << LCD_POS_RS)
-
-#define LCD_POS_EN 0x07
+#define LCD_POS_EN 0x06
 #define LCD_PORT_EN PORTD
 #define LCD_DIR_EN DDRD
 #define LCD_MASK_EN (0x01 << LCD_POS_EN)
 
+#define LCD_POS_RS 0x07
+#define LCD_PORT_RS PORTD
+#define LCD_DIR_RS DDRD
+#define LCD_MASK_RS (0x01 << LCD_POS_RS)
 
 static inline void wait_50_ns(void)
 {
@@ -545,10 +544,10 @@ static void opto_disable_series(void)
 #define BUT_COMMON_PIN PINC
 #define BUT_COMMON_PORT PORTC
 
-#define BUT_PLUS_POS 2
-#define BUT_MINUS_POS 3
-#define BUT_MODE_POS 4
-#define BUT_SAVE_POS 5
+#define BUT_SAVE_POS 2
+#define BUT_MODE_POS 3
+#define BUT_PLUS_POS 4
+#define BUT_MINUS_POS 5
 
 #define BUT_PLUS_MASK (1 << BUT_PLUS_POS)
 #define BUT_MINUS_MASK (1 << BUT_MINUS_POS)
