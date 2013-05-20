@@ -38,6 +38,7 @@
 #include <avr/eeprom.h>
 
 
+#define CONFIG_DEBUG 1
 #define CONFIG_LCD 1
 #define CONFIG_UART 1
 
@@ -260,6 +261,13 @@ static void uart_write(const uint8_t* s, uint8_t n)
   while ((UCSR0A & (1 << 6)) == 0) ;
 }
 
+static void uart_write_cstring(const char* s)
+{
+  uint8_t n;
+  for (n = 0; s[n]; ++n) ;
+  uart_write((const uint8_t*)s, n);
+}
+
 #endif /* CONFIG_UART */
 
 
@@ -286,6 +294,16 @@ static uint8_t* uint32_to_string(uint32_t x)
   buf[2] = hex(nibble(x, 5));
   buf[1] = hex(nibble(x, 6));
   buf[0] = hex(nibble(x, 7));
+
+  return buf;
+}
+
+static uint8_t* uint8_to_string(uint8_t x)
+{
+  static uint8_t buf[2];
+
+  buf[1] = hex(nibble(x, 0));
+  buf[0] = hex(nibble(x, 1));
 
   return buf;
 }
@@ -569,6 +587,11 @@ static uint8_t but_read(void)
   return BUT_COMMON_PIN & BUT_COMMON_MASK;
 }
 
+static uint8_t but_is_pressed(uint8_t x, uint8_t m)
+{
+  return (x & m) != m;
+}
+
 /* user configured ticks */
 
 static uint8_t conf_parallel_ticks;
@@ -589,6 +612,11 @@ static void conf_load(void)
   if (*(uint32_t*)buf != CONF_EEPROM_MAGIC)
   {
     /* default if eeprom not written */
+
+#if CONFIG_DEBUG
+    uart_write_cstring("bad_eeprom_magic\r\n");
+#endif /* CONFIG_DEBUG */
+
     conf_parallel_ticks = TIMER_MS_TO_TICKS(10);
     conf_series_ticks = TIMER_MS_TO_TICKS(500);
   }
@@ -598,6 +626,14 @@ static void conf_load(void)
 
     conf_parallel_ticks = *(uint8_t*)(buf + 4);
     conf_series_ticks = *(uint8_t*)(buf + 5);
+
+#if CONFIG_DEBUG
+    uart_write_cstring("good_eeprom_magic: ");
+    uart_write(uint8_to_string(conf_parallel_ticks), 2);
+    uart_write_cstring(" ");
+    uart_write(uint8_to_string(conf_series_ticks), 2);
+    uart_write_cstring("\r\n");
+#endif /* CONFIG_DEBUG */
 
     if (conf_parallel_ticks < TIMER_MS_TO_TICKS(10))
       conf_parallel_ticks = TIMER_MS_TO_TICKS(10);
@@ -681,6 +717,8 @@ static uint16_t abs_diff(uint16_t a, uint16_t b)
 
 int main(void)
 {
+  uint8_t min_value;
+  uint8_t max_value;
   uint8_t* value;
   uint8_t mode;
   uint8_t but;
@@ -725,7 +763,8 @@ int main(void)
 
     while (1)
     {
-      if (but_read() & BUT_SAVE_MASK)
+      but = but_read();
+      if (but_is_pressed(but, BUT_MODE_MASK))
       {
 	opto_disable_parallel();
 	timer_disable();
@@ -766,35 +805,86 @@ int main(void)
 
     /* do_update_ppm: */
 
+    but = but_read();
   do_buttons:
 #define CONF_MODE_PARALLEL 0
 #define CONF_MODE_SERIES 1
-    mode = CONF_MODE_PARALLEL;
-    if ((but = but_read()) & BUT_SAVE_MASK)
+    if (but_is_pressed(but, BUT_MODE_MASK))
     {
+      mode = CONF_MODE_PARALLEL;
+
+#if CONFIG_DEBUG
+      uart_write_cstring("enter\r\n");
+#endif /* CONFIG_DEBUG */
+
       while (1)
       {
 	but = but_read();
 
 	/* toggle mode */
-	if (but & BUT_MODE_MASK) mode ^= 1;
+	if (but_is_pressed(but, BUT_MODE_MASK))
+	{
+#if CONFIG_DEBUG
+	  uart_write_cstring("mode\r\n");
+#endif /* CONFIG_DEBUG */
+	  mode ^= 1;
+	}
 	
 	/* update values */
-	if (mode == CONF_MODE_PARALLEL) value = &conf_parallel_ticks;
-	else value = &conf_series_ticks;
-	if (but & BUT_MINUS_MASK) *value -= TIMER_MS_TO_TICKS(10);
-	if (but & BUT_PLUS_MASK) *value += TIMER_MS_TO_TICKS(10);
+	if (mode == CONF_MODE_PARALLEL)
+	{
+	  value = &conf_parallel_ticks;
+	  min_value = TIMER_MS_TO_TICKS(10);
+	  max_value = TIMER_MS_TO_TICKS(1000);
+	}
+	else
+	{
+	  value = &conf_series_ticks;
+	  min_value = TIMER_MS_TO_TICKS(10);
+	  max_value = TIMER_MS_TO_TICKS(500);
+	}
+
+	if (but_is_pressed(but, BUT_MINUS_MASK))
+	{
+	  if (*value >= (min_value + TIMER_MS_TO_TICKS(10)))
+	    *value -= TIMER_MS_TO_TICKS(10);
+	  else
+	    *value = min_value;
+
+#if CONFIG_DEBUG
+	  uart_write_cstring("minus: ");
+	  uart_write(uint8_to_string(*value), 2);
+	  uart_write_cstring("\r\n");
+#endif /* CONFIG_DEBUG */
+	}
+
+	if (but_is_pressed(but, BUT_PLUS_MASK))
+	{
+	  if (*value <= (max_value - TIMER_MS_TO_TICKS(10)))
+	    *value += TIMER_MS_TO_TICKS(10);
+	  else
+	    *value = max_value;
+
+#if CONFIG_DEBUG
+	  uart_write_cstring("plus: ");
+	  uart_write(uint8_to_string(*value), 2);
+	  uart_write_cstring("\r\n");
+#endif /* CONFIG_DEBUG */
+	}
 
 	/* update if something has changed */
-	if (but)
+	if (but_is_pressed(but, BUT_COMMON_MASK))
 	{
 	  /* TODO: lcd_write(mode); */
 	  /* TODO: lcd_write(value); */
 	}
 
 	/* save values and leaves */
-	if (but & BUT_SAVE_MASK)
+	if (but_is_pressed(but, BUT_SAVE_MASK))
 	{
+#if CONFIG_DEBUG
+	  uart_write_cstring("save\r\n");
+#endif /* CONFIG_DEBUG */
 	  conf_store();
 	  break ;
 	}
