@@ -293,23 +293,6 @@ static inline uint8_t hex(uint8_t x)
   return (x >= 0xa) ? 'a' + x - 0xa : '0' + x;
 }
 
-__attribute__((unused))
-static uint8_t* uint32_to_string(uint32_t x)
-{
-  static uint8_t buf[8];
-
-  buf[7] = hex(nibble(x, 0));
-  buf[6] = hex(nibble(x, 1));
-  buf[5] = hex(nibble(x, 2));
-  buf[4] = hex(nibble(x, 3));
-  buf[3] = hex(nibble(x, 4));
-  buf[2] = hex(nibble(x, 5));
-  buf[1] = hex(nibble(x, 6));
-  buf[0] = hex(nibble(x, 7));
-
-  return buf;
-}
-
 static uint8_t* uint8_to_string(uint8_t x)
 {
   static uint8_t buf[2];
@@ -448,6 +431,7 @@ static void eeprom_read(uint8_t pos, uint8_t* buf, uint8_t n)
 #define ADC_COMMON_MASK (ADC_MASK_VCAP | ADC_MASK_VOUT)
 
 #define ADC_CONV_VOLT(__x) (((__x) * 1024) / 5)
+#define ADC_CONV_UINT10(__x) (((__x) * 5) / 1024)
 
 static void adc_setup(void)
 {
@@ -794,16 +778,55 @@ static uint16_t abs_diff(uint16_t a, uint16_t b)
 
 /* printing routines */
 
+static void uint32_to_string(uint32_t x, uint32_t r, uint8_t* buf)
+{
+  /* buf is right aligned */
+
+  uint8_t zero = (x == 0) ? '0' : ' ';
+
+  uint8_t i;
+
+  for (i = 0; r; ++i, r /= 10)
+  {
+    const uint32_t q = x / r;
+
+    /* assume zero */
+    buf[i] = zero;
+
+    if (q)
+    {
+      buf[i] = '0' + q;
+      x -= q * r;
+      zero = '0';
+    }
+  }
+}
+
+static void ticks_to_ms_string(uint8_t ticks, uint8_t* buf)
+{
+  /* assume ms <= 9999 */
+  const uint32_t x = TIMER_TICKS_TO_MS(ticks);
+  uint32_to_string(x, 1000, buf);
+}
+
+static void scaled_volts_to_string(uint16_t volts, uint8_t* buf)
+{
+  /* assume ms <= 999 */
+  const uint32_t x = ADC_CONV_UINT10((uint32_t)volts * 20);
+  uint32_to_string(x, 100, buf);
+}
+
 static void print_voltages(uint16_t vcap, uint16_t vout)
 {
-  lcd_goto_xy(0, 0);
-  lcd_write((const uint8_t*)"        ", 8);
+  uint8_t buf[3];
 
   lcd_goto_xy(0, 0);
-  lcd_write(uint10_to_string(vcap), 3);
+  scaled_volts_to_string(vcap, buf);
+  lcd_write(buf, sizeof(buf));
 
   lcd_goto_xy(4, 0);
-  lcd_write(uint10_to_string(vout), 3);
+  scaled_volts_to_string(vout, buf);
+  lcd_write(buf, sizeof(buf));
 }
 
 static void print_ppm(uint8_t ppm)
@@ -812,49 +835,17 @@ static void print_ppm(uint8_t ppm)
   lcd_write(uint8_to_string(ppm), 2);
 }
 
-static const uint8_t* ticks_to_ms_string(uint8_t ticks)
-{
-  /* right aligned */
-
-#define MS_STRING_SIZE 4
-  static uint8_t buf[MS_STRING_SIZE];
-
-  /* assume ms <= 1000 */
-  uint32_t ms = TIMER_TICKS_TO_MS(ticks);
-
-  uint8_t zero = ' ';
-
-  uint32_t r;
-  uint8_t i;
-
-  r = 1000;
-  for (i = 0; i < sizeof(buf); ++i, r /= 10)
-  {
-    const uint32_t x = ms / r;
-
-    /* assume zero */
-    buf[i] = zero;
-
-    if (x)
-    {
-      buf[i] = '0' + x;
-      ms -= x * r;
-      zero = '0';
-    }
-  }
-
-  return buf;
-}
-
 static void print_mode(uint8_t mode, uint8_t value)
 {
   static const char* s[] = { "parallel", "series  " };
+  uint8_t buf[4];
 
   lcd_goto_xy(0, 0);
   lcd_write((const uint8_t*)s[mode], 8);
 
   lcd_goto_xy(0, 1);
-  lcd_write(ticks_to_ms_string(value), MS_STRING_SIZE);
+  ticks_to_ms_string(value, buf);
+  lcd_write(buf, sizeof(buf));
 }
 
 
@@ -1028,6 +1019,7 @@ int main(void)
 #if CONFIG_DEBUG
 	  uart_write_cstring("save\r\n");
 #endif /* CONFIG_DEBUG */
+	  lcd_clear();
 	  conf_store();
 	  break ;
 	}
