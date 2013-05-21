@@ -812,6 +812,40 @@ static void print_ppm(uint8_t ppm)
   lcd_write(uint8_to_string(ppm), 2);
 }
 
+static const uint8_t* ticks_to_ms_string(uint8_t ticks)
+{
+  /* right aligned */
+
+#define MS_STRING_SIZE 4
+  static uint8_t buf[MS_STRING_SIZE];
+
+  /* assume ms <= 1000 */
+  uint32_t ms = TIMER_TICKS_TO_MS(ticks);
+
+  uint8_t zero = ' ';
+
+  uint32_t r;
+  uint8_t i;
+
+  r = 1000;
+  for (i = 0; i < sizeof(buf); ++i, r /= 10)
+  {
+    const uint32_t x = ms / r;
+
+    /* assume zero */
+    buf[i] = zero;
+
+    if (x)
+    {
+      buf[i] = '0' + x;
+      ms -= x * r;
+      zero = '0';
+    }
+  }
+
+  return buf;
+}
+
 static void print_mode(uint8_t mode, uint8_t value)
 {
   static const char* s[] = { "parallel", "series  " };
@@ -820,7 +854,7 @@ static void print_mode(uint8_t mode, uint8_t value)
   lcd_write((const uint8_t*)s[mode], 8);
 
   lcd_goto_xy(0, 1);
-  lcd_write(uint8_to_string(value), 2);
+  lcd_write(ticks_to_ms_string(value), MS_STRING_SIZE);
 }
 
 
