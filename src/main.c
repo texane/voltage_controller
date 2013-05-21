@@ -591,29 +591,78 @@ static void opto_disable_series(void)
 #define BUT_PLUS_POS 4
 #define BUT_MINUS_POS 5
 
+#define BUT_SAVE_MASK (1 << BUT_SAVE_POS)
+#define BUT_MODE_MASK (1 << BUT_MODE_POS)
 #define BUT_PLUS_MASK (1 << BUT_PLUS_POS)
 #define BUT_MINUS_MASK (1 << BUT_MINUS_POS)
-#define BUT_MODE_MASK (1 << BUT_MODE_POS)
-#define BUT_SAVE_MASK (1 << BUT_SAVE_POS)
 
 #define BUT_COMMON_MASK \
-  (BUT_PLUS_MASK | BUT_MINUS_MASK | BUT_MODE_MASK | BUT_SAVE_MASK)
+  (BUT_SAVE_MASK | BUT_MODE_MASK | BUT_PLUS_MASK | BUT_MINUS_MASK)
+
+/* button counters */
+
+static volatile uint8_t but_states;
 
 static void but_setup(void)
 {
   /* enable pullups and set as input */
   BUT_COMMON_PORT |= BUT_COMMON_MASK;
   BUT_COMMON_DDR &= ~BUT_COMMON_MASK;
+
+  /* reset button states */
+  but_states = 0;
 }
 
-static uint8_t but_read(void)
+static inline void but_update_one
+(uint8_t pre, uint8_t cur, uint8_t* counter, uint8_t mask)
 {
-  return BUT_COMMON_PIN & BUT_COMMON_MASK;
+  const uint8_t is_pressed = (cur & mask) == 0;
+
+  if (is_pressed && ((pre & mask) == (cur & mask)))
+  {
+    if ((++*counter) == TIMER_MS_TO_TICKS(125))
+    {
+      but_states |= mask;
+      *counter = 0;
+    }
+  }
+  else
+  {
+    but_states &= ~mask;
+    *counter = 0;
+  }
+}
+
+static void but_update_states(void)
+{
+  static uint8_t save_counter = 0;
+  static uint8_t mode_counter = 0;
+  static uint8_t plus_counter = 0;
+  static uint8_t minus_counter = 0;
+
+  static uint8_t pre = 0;
+
+  const uint8_t cur = BUT_COMMON_PIN & BUT_COMMON_MASK;
+
+  but_update_one(pre, cur, &save_counter, BUT_SAVE_MASK);
+  but_update_one(pre, cur, &mode_counter, BUT_MODE_MASK);
+  but_update_one(pre, cur, &plus_counter, BUT_PLUS_MASK);
+  but_update_one(pre, cur, &minus_counter, BUT_MINUS_MASK);
+
+  /* affect current value to previous */
+  pre = cur;
+}
+
+static uint8_t but_read_states(void)
+{
+  const uint8_t x = but_states;
+  but_states &= ~(x);
+  return x;
 }
 
 static uint8_t but_is_pressed(uint8_t x, uint8_t m)
 {
-  return (x & m) != m;
+  return x & m;
 }
 
 /* user configured ticks */
@@ -694,6 +743,9 @@ static volatile uint8_t timer_ticks = 0;
 
 ISR(TIMER1_COMPA_vect)
 {
+  /* update button state */
+  but_update_states();
+
   /* prevent overflow */
   if (timer_ticks == 0xff) return ;
   ++timer_ticks;
@@ -822,7 +874,7 @@ int main(void)
 
     while (1)
     {
-      but = but_read();
+      but = but_read_states();
       if (but_is_pressed(but, BUT_MODE_MASK))
       {
 	opto_disable_parallel();
@@ -863,11 +915,12 @@ int main(void)
     /* do_update_ppm: */
     print_ppm(opto_pulses);
 
-    but = but_read();
+    but = but_read_states();
   do_buttons:
     if (but_is_pressed(but, BUT_MODE_MASK))
     {
       mode = CONF_MODE_PARALLEL;
+      print_mode(CONF_MODE_PARALLEL, conf_parallel_ticks);
 
 #if CONFIG_DEBUG
       uart_write_cstring("enter\r\n");
@@ -875,7 +928,7 @@ int main(void)
 
       while (1)
       {
-	but = but_read();
+	but = but_read_states();
 
 	/* toggle mode */
 	if (but_is_pressed(but, BUT_MODE_MASK))
