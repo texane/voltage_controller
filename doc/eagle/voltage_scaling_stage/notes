@@ -1,0 +1,19 @@
+[ bom ]
+
+description: unity gain differential amplifier
+code: 1827398
+url: http://fr.farnell.com/analog-devices/ad8276arz/amplificateur-diff-r-r-550khz-8soic/dp/1827398
+price: 2.62 euros
+quantity: 2
+
+description: 1MOhms resistor, 200mW
+code: 1469968
+url: http://fr.farnell.com/vishay-draloric/crcw12061m00fkea/resistance-1206-1mr-1/dp/1469968
+price: 0.026 euros
+quantity: 50
+
+description: 51kOhms resistor, 250mW
+code: 2139565
+url: http://fr.farnell.com/vishay-draloric/crcw120651k0fkea/resistance-1206-51k0-1/dp/2139565
+price: 0.01 euros
+quantity: 50
